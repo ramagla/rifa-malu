@@ -1,10 +1,8 @@
 {
-  "services": {
-    "frontend": { "root": "frontend", "framework": "vite" },
-    "backend": { "root": "backend" }
-  },
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "cd frontend && npm ci && npm run build",
+  "outputDirectory": "frontend/dist",
   "rewrites": [
-    { "source": "/api(/.*)?", "destination": { "type": "service", "service": "backend" } },
-    { "source": "/(.*)", "destination": { "type": "service", "service": "frontend" } }
+    { "source": "/admin", "destination": "/index.html" }
   ]
 }
