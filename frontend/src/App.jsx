@@ -1021,7 +1021,9 @@ function PublicRaffle() {
                   setForm({
                     ...form,
                     phone:
-                      event.target.value,
+                      formatWhatsApp(
+                        event.target.value
+                      ),
                   })
                 }
                 placeholder="(11) 99999-9999"
