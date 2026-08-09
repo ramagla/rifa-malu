@@ -2664,3 +2664,28 @@ PUBLICO - AJUSTE DESKTOP + GANHADOR
     font-size: 10px;
   }
 }
+
+/* Confirmações administrativas sem window.confirm */
+.admin-confirm-modal{
+  z-index:120;
+}
+
+.admin-confirm-actions{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+  margin-top:22px;
+}
+
+.admin-confirm-actions .secondary-button,
+.admin-confirm-actions .continue{
+  width:100%;
+  min-height:44px;
+  justify-content:center;
+}
+
+@media(max-width:520px){
+  .admin-confirm-actions{
+    grid-template-columns:1fr;
+  }
+}

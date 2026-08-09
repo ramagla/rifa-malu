@@ -47,6 +47,11 @@ export default function AdminDiapers({
     setError,
   ] = useState('')
 
+  const [
+    confirmation,
+    setConfirmation,
+  ] = useState(null)
+
   useEffect(() => {
     const next = {}
 
@@ -78,7 +83,7 @@ export default function AdminDiapers({
       0
     )
 
-  async function save(item) {
+  function save(item) {
     const value =
       Number(
         drafts[
@@ -98,27 +103,34 @@ export default function AdminDiapers({
       return
     }
 
+    setConfirmation({
+      item,
+      value,
+    })
+  }
+
+
+  async function confirmSave() {
+    const pending = confirmation
+
     if (
-      !window.confirm(
-        `Registrar ${value} pacote(s) recebidos do número ${pad(
-          item.number
-        )}?`
-      )
+      !pending ||
+      saving !== null
     ) {
       return
     }
 
     try {
       setSaving(
-        item.participationId
+        pending.item.participationId
       )
 
       setMessage('')
       setError('')
 
       await api.markDiaperReceived(
-        item.participationId,
-        value
+        pending.item.participationId,
+        pending.value
       )
 
       await onSaved()
@@ -130,8 +142,10 @@ export default function AdminDiapers({
       setError(err.message)
     } finally {
       setSaving(null)
+      setConfirmation(null)
     }
   }
+
 
   return (
     <div className="admin-page-body">
@@ -294,6 +308,82 @@ export default function AdminDiapers({
               </article>
             )
           })}
+        </div>
+      )}
+
+      {confirmation && (
+        <div
+          className="modal admin-confirm-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="diaper-confirm-title"
+        >
+          <form
+            onSubmit={event => {
+              event.preventDefault()
+              confirmSave()
+            }}
+          >
+            <button
+              type="button"
+              className="close"
+              aria-label="Cancelar"
+              disabled={saving !== null}
+              onClick={() =>
+                setConfirmation(null)
+              }
+            >
+              ×
+            </button>
+
+            <p className="eyebrow">
+              CONFIRMAÇÃO
+            </p>
+
+            <h2 id="diaper-confirm-title">
+              Confirmar recebimento?
+            </h2>
+
+            <p className="form-copy">
+              Registrar{' '}
+              <strong>
+                {confirmation.value}
+              </strong>{' '}
+              pacote(s) recebidos do
+              número{' '}
+              <strong>
+                {pad(
+                  confirmation
+                    .item
+                    .number
+                )}
+              </strong>
+              ?
+            </p>
+
+            <div className="admin-confirm-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={saving !== null}
+                onClick={() =>
+                  setConfirmation(null)
+                }
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="submit"
+                className="continue"
+                disabled={saving !== null}
+              >
+                {saving !== null
+                  ? 'Salvando...'
+                  : 'Confirmar'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

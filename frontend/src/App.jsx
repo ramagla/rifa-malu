@@ -1247,7 +1247,7 @@ function PublicRaffle() {
 
               <p>
                 Após confirmar, este número ficará reservado por{' '}
-                {event.reservationTtlMinutes || 120}{' '}
+                {event.reservationTtlMinutes || 1440}{' '}
                 minutos aguardando a confirmação do Pix.
               </p>
             </div>
@@ -1872,6 +1872,11 @@ function AdminPortal({
   ] = useState(false)
 
   const [
+    confirmation,
+    setConfirmation,
+  ] = useState(null)
+
+  const [
     drawerOpen,
     setDrawerOpen,
   ] = useState(false)
@@ -1917,14 +1922,23 @@ function AdminPortal({
   }, [load])
 
 
-  async function executeAction(
+  function executeAction(
     confirmMessage,
     operation
   ) {
+    setConfirmation({
+      message: confirmMessage,
+      operation,
+    })
+  }
+
+
+  async function confirmAction() {
+    const pending = confirmation
+
     if (
-      !window.confirm(
-        confirmMessage
-      )
+      !pending ||
+      actionBusy
     ) {
       return
     }
@@ -1933,7 +1947,15 @@ function AdminPortal({
       setActionBusy(true)
       setError('')
 
-      await operation()
+      // Entrega um frame ao navegador para
+      // atualizar a interface antes da requisição.
+      await new Promise(resolve => {
+        window.requestAnimationFrame(
+          () => resolve()
+        )
+      })
+
+      await pending.operation()
       await load()
     } catch (err) {
       if (err.status === 401) {
@@ -1944,6 +1966,7 @@ function AdminPortal({
       setError(err.message)
     } finally {
       setActionBusy(false)
+      setConfirmation(null)
     }
   }
 
@@ -2272,6 +2295,69 @@ function AdminPortal({
           />
         )}
       </main>
+
+      {confirmation && (
+        <div
+          className="modal admin-confirm-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="admin-confirm-title"
+        >
+          <form
+            onSubmit={event => {
+              event.preventDefault()
+              confirmAction()
+            }}
+          >
+            <button
+              type="button"
+              className="close"
+              aria-label="Cancelar"
+              disabled={actionBusy}
+              onClick={() =>
+                setConfirmation(null)
+              }
+            >
+              ×
+            </button>
+
+            <p className="eyebrow">
+              CONFIRMAÇÃO
+            </p>
+
+            <h2 id="admin-confirm-title">
+              Confirmar ação?
+            </h2>
+
+            <p className="form-copy">
+              {confirmation.message}
+            </p>
+
+            <div className="admin-confirm-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={actionBusy}
+                onClick={() =>
+                  setConfirmation(null)
+                }
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="submit"
+                className="continue"
+                disabled={actionBusy}
+              >
+                {actionBusy
+                  ? 'Processando...'
+                  : 'Confirmar'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   )
 }
@@ -2854,7 +2940,7 @@ function AdminSettings({
       reservationTtlMinutes:
         Number(
           event.reservationTtlMinutes ||
-          120
+          1440
         ),
     })
   }, [event])

@@ -70,6 +70,11 @@ export default function AdminDraw({
     setSaving,
   ] = useState(false)
 
+  const [
+    confirmation,
+    setConfirmation,
+  ] = useState(null)
+
   async function copyEligible() {
     const text =
       eligible
@@ -96,7 +101,7 @@ export default function AdminDraw({
     }
   }
 
-  async function register(event) {
+  function register(event) {
     event.preventDefault()
 
     const number =
@@ -118,12 +123,19 @@ export default function AdminDraw({
       return
     }
 
+    setConfirmation({
+      number,
+      participant,
+    })
+  }
+
+
+  async function confirmRegister() {
+    const pending = confirmation
+
     if (
-      !window.confirm(
-        `Registrar o número ${pad(
-          number
-        )} de ${participant.name} como vencedor?`
-      )
+      !pending ||
+      saving
     ) {
       return
     }
@@ -134,7 +146,7 @@ export default function AdminDraw({
       setMessage('')
 
       await api.registerDraw(
-        number,
+        pending.number,
         notes
       )
 
@@ -147,8 +159,10 @@ export default function AdminDraw({
       setError(err.message)
     } finally {
       setSaving(false)
+      setConfirmation(null)
     }
   }
+
 
   const draw =
     dashboard.draw
@@ -341,6 +355,81 @@ export default function AdminDraw({
           )}
         </article>
       </section>
+
+      {confirmation && (
+        <div
+          className="modal admin-confirm-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="draw-confirm-title"
+        >
+          <form
+            onSubmit={event => {
+              event.preventDefault()
+              confirmRegister()
+            }}
+          >
+            <button
+              type="button"
+              className="close"
+              aria-label="Cancelar"
+              disabled={saving}
+              onClick={() =>
+                setConfirmation(null)
+              }
+            >
+              ×
+            </button>
+
+            <p className="eyebrow">
+              CONFIRMAÇÃO
+            </p>
+
+            <h2 id="draw-confirm-title">
+              Confirmar vencedor?
+            </h2>
+
+            <p className="form-copy">
+              Registrar o número{' '}
+              {pad(
+                confirmation.number
+              )}{' '}
+              de{' '}
+              <strong>
+                {
+                  confirmation
+                    .participant
+                    .name
+                }
+              </strong>{' '}
+              como vencedor?
+            </p>
+
+            <div className="admin-confirm-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={saving}
+                onClick={() =>
+                  setConfirmation(null)
+                }
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="submit"
+                className="continue"
+                disabled={saving}
+              >
+                {saving
+                  ? 'Registrando...'
+                  : 'Confirmar'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   )
 }

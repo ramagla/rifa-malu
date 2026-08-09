@@ -31,7 +31,7 @@ const statements = [
     delivery_address TEXT,
     allow_pix INTEGER NOT NULL DEFAULT 1,
     allow_diaper INTEGER NOT NULL DEFAULT 1,
-    reservation_ttl_minutes INTEGER NOT NULL DEFAULT 120,
+    reservation_ttl_minutes INTEGER NOT NULL DEFAULT 1440,
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -190,6 +190,87 @@ export async function ensureSchema() {
           nowIso(),
         ],
       })
+
+
+      // RESERVATION_TTL_24H
+      const ttlMigration =
+        await db.execute(`
+          SELECT version
+          FROM schema_migrations
+          WHERE version = 2
+          LIMIT 1
+        `)
+
+      if (!ttlMigration.rows.length) {
+        const timestamp = nowIso()
+
+        const expiresAt =
+          new Date(
+            Date.now() +
+            1440 * 60000
+          ).toISOString()
+
+        const ttlEvents =
+          await db.execute(`
+            SELECT id
+            FROM events
+            WHERE reservation_ttl_minutes = 120
+          `)
+
+        for (
+          const row of ttlEvents.rows
+        ) {
+          const eventId =
+            Number(row.id)
+
+          await db.execute({
+            sql: `
+              UPDATE events
+              SET
+                reservation_ttl_minutes = 1440,
+                updated_at = ?
+              WHERE id = ?
+            `,
+            args: [
+              timestamp,
+              eventId,
+            ],
+          })
+
+          // Estende também reservas Pix
+          // pendentes que já existiam antes
+          // desta migração.
+          await db.execute({
+            sql: `
+              UPDATE raffle_numbers
+              SET
+                expires_at = ?,
+                updated_at = ?
+              WHERE event_id = ?
+                AND status = 'AWAITING_PAYMENT'
+            `,
+            args: [
+              expiresAt,
+              timestamp,
+              eventId,
+            ],
+          })
+        }
+
+        await db.execute({
+          sql: `
+            INSERT INTO schema_migrations (
+              version,
+              applied_at
+            )
+            VALUES (?, ?)
+          `,
+          args: [
+            2,
+            timestamp,
+          ],
+        })
+      }
     })().catch((error) => {
       schemaReady = null
       throw error
@@ -270,7 +351,7 @@ export async function ensureDefaultEvent() {
       'A combinar com a família',
       1,
       1,
-      120,
+      1440,
       1,
       timestamp,
       timestamp,
