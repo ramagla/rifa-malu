@@ -3,6 +3,10 @@ import {
 } from '../server/_admin-service.js'
 
 import {
+  testMercadoPagoPixIntegration,
+} from '../server/_mercado-pago.js'
+
+import {
   verifyAdminRequest,
 } from '../server/_session.js'
 
@@ -43,9 +47,33 @@ export default async function handler(
   }
 
   try {
+    const body =
+      parseBody(request)
+
+    if (
+      body.action ===
+      'TEST_MERCADO_PAGO'
+    ) {
+      const result =
+        await testMercadoPagoPixIntegration({
+          credentialProfile:
+            body.credentialProfile ||
+            'principal',
+        })
+
+      return sendJson(
+        response,
+        200,
+        {
+          success: true,
+          ...result,
+        }
+      )
+    }
+
     const result =
       await updateEventSettings(
-        parseBody(request)
+        body
       )
 
     return sendJson(

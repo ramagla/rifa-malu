@@ -105,6 +105,23 @@ const api = {
     )
   },
 
+  testMercadoPago(
+    credentialProfile = 'principal'
+  ) {
+    return request(
+      '/api/admin-settings',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          action:
+            'TEST_MERCADO_PAGO',
+          credentialProfile,
+        }),
+      }
+    )
+  },
+
+
   updateSettings(payload) {
     return request(
       '/api/admin-settings',

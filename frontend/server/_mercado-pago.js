@@ -225,6 +225,7 @@ export async function createMercadoPagoPixOrder({
 
   amount,
   email,
+  payerFirstName = '',
   externalReference,
   expirationMinutes = 1440,
   idempotencyKey,
@@ -251,18 +252,38 @@ export async function createMercadoPagoPixOrder({
     )
   }
 
+  const isTest =
+    String(
+      environment || 'TEST'
+    ).toUpperCase() === 'TEST'
+
   const normalizedEmail =
     String(email || '')
       .trim()
       .toLowerCase()
 
+  const providerEmail =
+    isTest
+      ? 'test_user_br@testuser.com'
+      : normalizedEmail
+
   if (
-    !normalizedEmail.includes('@')
+    !providerEmail.includes('@')
   ) {
     throw new Error(
       'E-mail do pagador inválido.'
     )
   }
+
+  const providerFirstName =
+    isTest
+      ? 'APRO'
+      : String(
+          payerFirstName || ''
+        )
+          .trim()
+          .split(/\s+/)[0]
+          .slice(0, 60)
 
   const data =
     await mercadoPagoRequest(
@@ -313,7 +334,14 @@ export async function createMercadoPagoPixOrder({
 
           payer: {
             email:
-              normalizedEmail,
+              providerEmail,
+
+            ...(providerFirstName
+              ? {
+                  first_name:
+                    providerFirstName,
+                }
+              : {}),
           },
         },
       }
@@ -390,6 +418,68 @@ export async function createMercadoPagoPixOrder({
 
     raw:
       data,
+  }
+}
+
+
+export async function testMercadoPagoPixIntegration({
+  credentialProfile = 'principal',
+} = {}) {
+  const idempotencyKey =
+    newMercadoPagoIdempotencyKey()
+
+  const result =
+    await createMercadoPagoPixOrder({
+      environment: 'TEST',
+
+      credentialProfile,
+
+      amount: 50,
+
+      email:
+        'test_user_br@testuser.com',
+
+      payerFirstName:
+        'APRO',
+
+      externalReference:
+        `rifa-integration-test-${Date.now()}`,
+
+      expirationMinutes: 30,
+
+      idempotencyKey,
+    })
+
+  return {
+    ok: true,
+
+    orderId:
+      result.orderId,
+
+    orderStatus:
+      result.orderStatus,
+
+    orderStatusDetail:
+      result.orderStatusDetail,
+
+    paymentId:
+      result.paymentId,
+
+    paymentStatus:
+      result.paymentStatus,
+
+    paymentStatusDetail:
+      result.paymentStatusDetail,
+
+    hasPixCopyPaste:
+      Boolean(
+        result.pixCopyPaste
+      ),
+
+    hasTicketUrl:
+      Boolean(
+        result.ticketUrl
+      ),
   }
 }
 

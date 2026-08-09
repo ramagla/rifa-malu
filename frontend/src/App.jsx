@@ -2873,6 +2873,16 @@ function AdminSettings({
   ] = useState(false)
 
   const [
+    testingMercadoPago,
+    setTestingMercadoPago,
+  ] = useState(false)
+
+  const [
+    mercadoPagoTest,
+    setMercadoPagoTest,
+  ] = useState(null)
+
+  const [
     message,
     setMessage,
   ] = useState('')
@@ -3042,6 +3052,30 @@ function AdminSettings({
       )
     } finally {
       setSaving(false)
+    }
+  }
+
+
+  async function testMercadoPagoConnection() {
+    try {
+      setTestingMercadoPago(true)
+      setMercadoPagoTest(null)
+      setError('')
+      setMessage('')
+
+      const result =
+        await api.testMercadoPago(
+          form.credentialProfile
+        )
+
+      setMercadoPagoTest(result)
+    } catch (err) {
+      setError(
+        err.message ||
+        'Não foi possível testar o Mercado Pago.'
+      )
+    } finally {
+      setTestingMercadoPago(false)
     }
   }
 
@@ -3383,6 +3417,68 @@ function AdminSettings({
               Usar Mercado Pago para o Pix
             </label>
           </div>
+
+          <div className="payment-test-box">
+            <div>
+              <strong>
+                Testar integração
+              </strong>
+
+              <small>
+                Cria uma cobrança somente no
+                ambiente de teste do Mercado Pago.
+                Nenhum número da rifa será reservado.
+              </small>
+            </div>
+
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={
+                testingMercadoPago
+              }
+              onClick={
+                testMercadoPagoConnection
+              }
+            >
+              {testingMercadoPago
+                ? 'Testando...'
+                : 'Testar credencial de teste'}
+            </button>
+          </div>
+
+          {mercadoPagoTest && (
+            <div className="payment-test-result">
+              <strong>
+                ✓ Mercado Pago respondeu
+              </strong>
+
+              <span>
+                Order:{' '}
+                {mercadoPagoTest.orderId}
+              </span>
+
+              <span>
+                Status:{' '}
+                {mercadoPagoTest.orderStatus}
+                {' / '}
+                {
+                  mercadoPagoTest
+                    .orderStatusDetail
+                }
+              </span>
+
+              <span>
+                Pix gerado:{' '}
+                {
+                  mercadoPagoTest
+                    .hasPixCopyPaste
+                    ? 'Sim'
+                    : 'Não'
+                }
+              </span>
+            </div>
+          )}
 
           {form.mercadoPagoEnabled && (
             <div className="payment-settings-fields">

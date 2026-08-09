@@ -2755,3 +2755,54 @@ PUBLICO - AJUSTE DESKTOP + GANHADOR
     flex-direction:column;
   }
 }
+
+.payment-test-box{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  margin-top:18px;
+  padding:16px;
+  border:1px solid #e7dfdc;
+  border-radius:5px;
+  background:#fff;
+}
+
+.payment-test-box strong,
+.payment-test-result strong{
+  display:block;
+  font-size:13px;
+}
+
+.payment-test-box small{
+  display:block;
+  max-width:520px;
+  margin-top:4px;
+  color:var(--muted);
+  font-size:11px;
+  line-height:1.5;
+}
+
+.payment-test-result{
+  display:grid;
+  gap:5px;
+  margin-top:12px;
+  padding:13px 15px;
+  border:1px solid #bdddc8;
+  border-radius:5px;
+  background:#e8f5ed;
+  color:#467159;
+  font-size:12px;
+}
+
+@media(max-width:700px){
+  .payment-test-box{
+    align-items:stretch;
+    flex-direction:column;
+  }
+
+  .payment-test-box .secondary-button{
+    width:100%;
+    justify-content:center;
+  }
+}
