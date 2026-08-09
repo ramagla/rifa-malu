@@ -22,3 +22,27 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Rifa Malu - banco local
+rifa-local.db
+rifa-local.db-shm
+rifa-local.db-wal
+
+# Banco isolado dos testes de responsividade
+rifa-responsive-test.db
+rifa-responsive-test.db-shm
+rifa-responsive-test.db-wal
+
+# Backups locais
+*.bak-*
+
+# Playwright
+playwright-report-responsive/
+test-results/
+
+# Bancos SQLite locais
+*.db
+*.db-shm
+*.db-wal
+.vercel
+.env*
