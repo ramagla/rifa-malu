@@ -288,9 +288,14 @@ export async function getPublicEvent(
       reservationTtlMinutes:
         Number(
           event.reservation_ttl_minutes ||
-          120
+          1440
         ),
     },
+
+    payment:
+      serializePaymentSettings(
+        paymentSettings
+      ),
 
     numbers: numbers.rows.map(row => ({
       number: Number(row.number),
@@ -514,7 +519,7 @@ export async function reserveNumber({
             new Date(),
             Number(
               event.reservation_ttl_minutes ||
-              120
+              1440
             )
           )
         : null
