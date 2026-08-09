@@ -64,6 +64,7 @@ const statements = [
     name TEXT NOT NULL,
     phone TEXT NOT NULL,
     normalized_phone TEXT,
+    email TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
 
@@ -137,6 +138,23 @@ const statements = [
     status TEXT NOT NULL DEFAULT 'PENDING',
     paid_at TEXT,
     external_reference TEXT,
+
+    provider TEXT NOT NULL DEFAULT 'MANUAL',
+    provider_order_id TEXT,
+    provider_payment_id TEXT,
+    provider_status TEXT,
+    provider_status_detail TEXT,
+
+    base_amount REAL NOT NULL DEFAULT 0,
+    fee_amount REAL NOT NULL DEFAULT 0,
+    charged_amount REAL NOT NULL DEFAULT 0,
+
+    pix_copy_paste TEXT,
+    ticket_url TEXT,
+    provider_expires_at TEXT,
+    idempotency_key TEXT,
+    confirmed_by TEXT,
+
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
 
@@ -380,6 +398,172 @@ export async function ensureSchema() {
           `,
           args: [
             3,
+            timestamp,
+          ],
+        })
+      }
+
+
+
+      // MERCADO_PAGO_CORE_V4
+      const mercadoPagoCoreMigration =
+        await db.execute(`
+          SELECT version
+          FROM schema_migrations
+          WHERE version = 4
+          LIMIT 1
+        `)
+
+      if (!mercadoPagoCoreMigration.rows.length) {
+        const timestamp = nowIso()
+
+        const participantColumns =
+          await db.execute(`
+            PRAGMA table_info(participants)
+          `)
+
+        const participantColumnNames =
+          new Set(
+            participantColumns.rows.map(
+              row => String(row.name)
+            )
+          )
+
+        if (
+          !participantColumnNames.has(
+            'email'
+          )
+        ) {
+          await db.execute(`
+            ALTER TABLE participants
+            ADD COLUMN email TEXT
+          `)
+        }
+
+        const paymentColumns =
+          await db.execute(`
+            PRAGMA table_info(payments)
+          `)
+
+        const paymentColumnNames =
+          new Set(
+            paymentColumns.rows.map(
+              row => String(row.name)
+            )
+          )
+
+        const additions = [
+          [
+            'provider',
+            "TEXT NOT NULL DEFAULT 'MANUAL'",
+          ],
+          [
+            'provider_order_id',
+            'TEXT',
+          ],
+          [
+            'provider_payment_id',
+            'TEXT',
+          ],
+          [
+            'provider_status',
+            'TEXT',
+          ],
+          [
+            'provider_status_detail',
+            'TEXT',
+          ],
+          [
+            'base_amount',
+            'REAL NOT NULL DEFAULT 0',
+          ],
+          [
+            'fee_amount',
+            'REAL NOT NULL DEFAULT 0',
+          ],
+          [
+            'charged_amount',
+            'REAL NOT NULL DEFAULT 0',
+          ],
+          [
+            'pix_copy_paste',
+            'TEXT',
+          ],
+          [
+            'ticket_url',
+            'TEXT',
+          ],
+          [
+            'provider_expires_at',
+            'TEXT',
+          ],
+          [
+            'idempotency_key',
+            'TEXT',
+          ],
+          [
+            'confirmed_by',
+            'TEXT',
+          ],
+        ]
+
+        for (
+          const [
+            column,
+            definition,
+          ] of additions
+        ) {
+          if (
+            paymentColumnNames.has(
+              column
+            )
+          ) {
+            continue
+          }
+
+          await db.execute(
+            `ALTER TABLE payments
+             ADD COLUMN ${column}
+             ${definition}`
+          )
+        }
+
+        // Compatibilidade com pagamentos
+        // que já existiam antes da integração.
+        await db.execute(`
+          UPDATE payments
+          SET
+            provider =
+              COALESCE(
+                provider,
+                'MANUAL'
+              ),
+
+            base_amount =
+              CASE
+                WHEN base_amount = 0
+                  THEN amount
+                ELSE base_amount
+              END,
+
+            charged_amount =
+              CASE
+                WHEN charged_amount = 0
+                  THEN amount
+                ELSE charged_amount
+              END
+        `)
+
+        await db.execute({
+          sql: `
+            INSERT INTO schema_migrations (
+              version,
+              applied_at
+            )
+            VALUES (?, ?)
+          `,
+          args: [
+            4,
             timestamp,
           ],
         })
