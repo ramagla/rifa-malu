@@ -140,6 +140,9 @@ const statements = [
     external_reference TEXT,
 
     provider TEXT NOT NULL DEFAULT 'MANUAL',
+    provider_environment TEXT,
+    credential_profile TEXT,
+    provider_amount REAL NOT NULL DEFAULT 0,
     provider_order_id TEXT,
     provider_payment_id TEXT,
     provider_status TEXT,
@@ -568,6 +571,84 @@ export async function ensureSchema() {
           ],
         })
       }
+
+
+
+      // MERCADO_PAGO_FLOW_V5
+      const mercadoPagoFlowMigration =
+        await db.execute(`
+          SELECT version
+          FROM schema_migrations
+          WHERE version = 5
+          LIMIT 1
+        `)
+
+      if (!mercadoPagoFlowMigration.rows.length) {
+        const timestamp = nowIso()
+
+        const paymentColumns =
+          await db.execute(`
+            PRAGMA table_info(payments)
+          `)
+
+        const paymentColumnNames =
+          new Set(
+            paymentColumns.rows.map(
+              row => String(row.name)
+            )
+          )
+
+        const additions = [
+          [
+            'provider_environment',
+            'TEXT',
+          ],
+          [
+            'credential_profile',
+            'TEXT',
+          ],
+          [
+            'provider_amount',
+            'REAL NOT NULL DEFAULT 0',
+          ],
+        ]
+
+        for (
+          const [
+            column,
+            definition,
+          ] of additions
+        ) {
+          if (
+            paymentColumnNames.has(
+              column
+            )
+          ) {
+            continue
+          }
+
+          await db.execute(
+            `ALTER TABLE payments
+             ADD COLUMN ${column}
+             ${definition}`
+          )
+        }
+
+        await db.execute({
+          sql: `
+            INSERT INTO schema_migrations (
+              version,
+              applied_at
+            )
+            VALUES (?, ?)
+          `,
+          args: [
+            5,
+            timestamp,
+          ],
+        })
+      }
+
 
     })().catch((error) => {
       schemaReady = null

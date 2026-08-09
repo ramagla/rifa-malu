@@ -287,6 +287,7 @@ function PublicRaffle() {
   ] = useState({
     name: '',
     phone: '',
+    email: '',
     method: 'both',
     size: 'M',
     packs: 1,
@@ -466,6 +467,7 @@ function PublicRaffle() {
         ...result,
         name: payload.name,
         phone: payload.phone,
+        email: payload.email,
         method: payload.method,
         diaperSize:
           payload.diaperSize,
@@ -526,6 +528,9 @@ function PublicRaffle() {
       phone:
         form.phone.trim(),
 
+      email:
+        form.email.trim(),
+
       method:
         form.method,
 
@@ -576,6 +581,16 @@ function PublicRaffle() {
 
 
   const event = data.event
+
+  const payment =
+    data.payment || {
+      pixProvider: 'MANUAL',
+      mercadoPagoEnabled: false,
+      feeType: 'PERCENTAGE',
+      feeValue: 0,
+      feePayer: 'ORGANIZER',
+      showFee: false,
+    }
 
   const draw =
     data.draw || null
@@ -1031,6 +1046,36 @@ function PublicRaffle() {
             </label>
 
 
+            {data?.payment
+              ?.mercadoPagoEnabled &&
+              form.method !== 'diaper' && (
+                <label>
+                  E-mail
+
+                  <input
+                    required
+                    type="email"
+                    autoComplete="email"
+                    value={form.email}
+                    onChange={event =>
+                      setForm({
+                        ...form,
+                        email:
+                          event.target.value,
+                      })
+                    }
+                    placeholder="voce@exemplo.com"
+                  />
+
+                  <small>
+                    Necessário para gerar
+                    a cobrança Pix pelo
+                    Mercado Pago.
+                  </small>
+                </label>
+              )}
+
+
             <fieldset className="method-select">
               <legend>
                 Como quer participar?
@@ -1210,6 +1255,16 @@ function PublicRaffle() {
                 </dd>
               </div>
 
+
+              {payment.mercadoPagoEnabled && (
+                <div>
+                  <dt>E-mail</dt>
+                  <dd>
+                    {review.email}
+                  </dd>
+                </div>
+              )}
+
               <div>
                 <dt>Participação</dt>
                 <dd>
@@ -1362,6 +1417,8 @@ function PublicRaffle() {
               done.participationStatus !== 'CANCELLED' && (
                 <PixPayment
                   event={event}
+                  reservation={done}
+                  paymentSettings={payment}
                 />
               )}
 
@@ -1521,6 +1578,8 @@ function pixPayload(event) {
 
 function PixPayment({
   event,
+  reservation,
+  paymentSettings,
 }) {
   const [
     image,
@@ -1532,8 +1591,49 @@ function PixPayment({
     setCopied,
   ] = useState('')
 
+  const mercadoPago =
+    reservation
+      ?.paymentProvider ===
+    'MERCADO_PAGO'
+
   const code =
-    pixPayload(event)
+    mercadoPago
+      ? String(
+          reservation
+            ?.pixCopyPaste ||
+          ''
+        )
+      : pixPayload(event)
+
+  const chargedAmount =
+    Number(
+      reservation
+        ?.chargedAmount ||
+      event.numberPrice ||
+      0
+    )
+
+  const providerAmount =
+    Number(
+      reservation
+        ?.providerAmount ||
+      chargedAmount
+    )
+
+  const baseAmount =
+    Number(
+      reservation
+        ?.baseAmount ||
+      event.numberPrice ||
+      0
+    )
+
+  const feeAmount =
+    Number(
+      reservation
+        ?.feeAmount ||
+      0
+    )
 
 
   useEffect(() => {
@@ -1586,8 +1686,10 @@ function PixPayment({
           Pix para pagamento
         </strong>
         <br />
-        A chave Pix ainda precisa
-        ser cadastrada pelo organizador.
+
+        {mercadoPago
+          ? 'A cobrança do Mercado Pago ainda está sendo preparada.'
+          : 'A chave Pix ainda precisa ser cadastrada pelo organizador.'}
       </p>
     )
   }
@@ -1596,7 +1698,9 @@ function PixPayment({
   return (
     <section className="pix-payment">
       <h3>
-        Faça o Pix para confirmar
+        {mercadoPago
+          ? 'Pague com Pix pelo Mercado Pago'
+          : 'Faça o Pix para confirmar'}
       </h3>
 
       {image && (
@@ -1606,57 +1710,155 @@ function PixPayment({
         />
       )}
 
-      <p>
-        Valor:{' '}
-        <strong>
-          {formatCurrency(
-            event.numberPrice
+      {mercadoPago ? (
+        <>
+          <div className="mp-payment-values">
+            <p>
+              Participação:{' '}
+              <strong>
+                {formatCurrency(
+                  baseAmount
+                )}
+              </strong>
+            </p>
+
+            {feeAmount > 0 &&
+              reservation?.showFee !== false &&
+              paymentSettings?.showFee !== false && (
+                <p>
+                  Taxa:{' '}
+                  <strong>
+                    {formatCurrency(
+                      feeAmount
+                    )}
+                  </strong>
+
+                  {reservation?.feePayer ===
+                    'ORGANIZER' &&
+                    ' — absorvida pelo organizador'}
+                </p>
+              )}
+
+            <p>
+              Total da participação:{' '}
+              <strong>
+                {formatCurrency(
+                  chargedAmount
+                )}
+              </strong>
+            </p>
+
+            {Math.abs(
+              providerAmount -
+              chargedAmount
+            ) > 0.01 && (
+              <div className="mp-sandbox-note">
+                <strong>
+                  Ambiente de teste
+                </strong>
+
+                <span>
+                  O sandbox oficial do
+                  Mercado Pago utiliza
+                  uma cobrança de{' '}
+                  {formatCurrency(
+                    providerAmount
+                  )}.
+                </span>
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            className="copy-button"
+            onClick={() =>
+              copy(
+                code,
+                'Pix Mercado Pago copiado!'
+              )
+            }
+          >
+            Copiar Pix copia e cola
+          </button>
+
+          {reservation?.ticketUrl && (
+            <a
+              className="copy-button mp-ticket-link"
+              href={
+                reservation.ticketUrl
+              }
+              target="_blank"
+              rel="noreferrer"
+            >
+              Abrir pagamento no Mercado Pago
+            </a>
           )}
-        </strong>
-        <br />
 
-        Recebedor:{' '}
-        <strong>
-          {event.pixRecipientName}
-        </strong>
-      </p>
+          <p className="pix-note">
+            A confirmação do pagamento
+            será feita automaticamente.
+          </p>
+        </>
+      ) : (
+        <>
+          <p>
+            Valor:{' '}
+            <strong>
+              {formatCurrency(
+                event.numberPrice
+              )}
+            </strong>
+            <br />
 
-      <button
-        type="button"
-        className="copy-button"
-        onClick={() =>
-          copy(
-            event.pixKey,
-            'Chave Pix copiada!'
-          )
-        }
-      >
-        Copiar chave Pix
-      </button>
+            Recebedor:{' '}
+            <strong>
+              {
+                event
+                  .pixRecipientName
+              }
+            </strong>
+          </p>
 
-      <button
-        type="button"
-        className="copy-button"
-        onClick={() =>
-          copy(
-            code,
-            'Código Pix copia e cola copiado!'
-          )
-        }
-      >
-        Copiar Pix copia e cola
-      </button>
+          <button
+            type="button"
+            className="copy-button"
+            onClick={() =>
+              copy(
+                event.pixKey,
+                'Chave Pix copiada!'
+              )
+            }
+          >
+            Copiar chave Pix
+          </button>
+
+          <button
+            type="button"
+            className="copy-button"
+            onClick={() =>
+              copy(
+                code,
+                'Código Pix copia e cola copiado!'
+              )
+            }
+          >
+            Copiar Pix copia e cola
+          </button>
+
+          <p className="pix-note">
+            Após pagar, envie o
+            comprovante para o
+            organizador.
+          </p>
+        </>
+      )}
 
       {copied && (
         <small>
           ✓ {copied}
         </small>
       )}
-
-      <p className="pix-note">
-        Após pagar, envie o comprovante
-        para o organizador.
-      </p>
     </section>
   )
 }

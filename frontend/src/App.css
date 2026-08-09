@@ -2806,3 +2806,37 @@ PUBLICO - AJUSTE DESKTOP + GANHADOR
     justify-content:center;
   }
 }
+
+/* Mercado Pago - pagamento público */
+
+.mp-payment-values{
+  width:100%;
+  margin:10px 0 14px;
+  padding:12px 14px;
+  border:1px solid #e7dfdc;
+  border-radius:5px;
+  background:#fffdfa;
+}
+
+.mp-payment-values p{
+  margin:4px 0;
+}
+
+.mp-sandbox-note{
+  display:grid;
+  gap:3px;
+  margin-top:10px;
+  padding:10px 12px;
+  border:1px solid #ead9a7;
+  border-radius:5px;
+  background:#fff9e7;
+  color:#765d17;
+  font-size:11px;
+}
+
+.mp-ticket-link{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-decoration:none;
+}

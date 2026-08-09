@@ -15,6 +15,12 @@ import {
   serializePaymentSettings,
 } from './_payment-settings.js'
 
+import {
+  createMercadoPagoPixOrder,
+  getMercadoPagoOrder,
+  newMercadoPagoIdempotencyKey,
+} from './_mercado-pago.js'
+
 const EVENT_SLUG = 'cha-da-malu'
 
 function addMinutes(date, minutes) {
@@ -22,6 +28,24 @@ function addMinutes(date, minutes) {
     date.getTime() +
     Number(minutes) * 60000
   ).toISOString()
+}
+
+
+function roundMoney(value) {
+  return Math.round(
+    (
+      Number(value || 0) +
+      Number.EPSILON
+    ) * 100
+  ) / 100
+}
+
+
+function validEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    .test(
+      String(value || '').trim()
+    )
 }
 
 async function eventBySlug(
@@ -309,6 +333,7 @@ export async function reserveNumber({
   number,
   name,
   phone,
+  email = '',
   method,
   diaperSize = '',
   diaperBrand = '',
@@ -322,16 +347,32 @@ export async function reserveNumber({
   const normalizedPhone =
     normalizePhone(phone)
 
+  const normalizedEmail =
+    cleanText(
+      email,
+      160
+    ).toLowerCase()
+
   const selectedNumber =
-    Number.parseInt(number, 10)
+    Number.parseInt(
+      number,
+      10
+    )
 
   const selectedMethod =
-    String(method || '').trim()
+    String(
+      method || ''
+    ).trim()
 
   const packs =
-    Number.parseInt(diaperPacks, 10) || 0
+    Number.parseInt(
+      diaperPacks,
+      10
+    ) || 0
 
-  if (normalizedName.length < 2) {
+  if (
+    normalizedName.length < 2
+  ) {
     return {
       ok: false,
       status: 400,
@@ -346,12 +387,15 @@ export async function reserveNumber({
     return {
       ok: false,
       status: 400,
-      error: 'Informe um WhatsApp válido.',
+      error:
+        'Informe um WhatsApp válido.',
     }
   }
 
   if (
-    !Number.isInteger(selectedNumber) ||
+    !Number.isInteger(
+      selectedNumber
+    ) ||
     selectedNumber < 1
   ) {
     return {
@@ -362,8 +406,11 @@ export async function reserveNumber({
   }
 
   if (
-    !['pix', 'diaper', 'both']
-      .includes(selectedMethod)
+    ![
+      'pix',
+      'diaper',
+      'both',
+    ].includes(selectedMethod)
   ) {
     return {
       ok: false,
@@ -390,11 +437,21 @@ export async function reserveNumber({
   const db = getDb()
 
   const tx =
-    await db.transaction('write')
+    await db.transaction(
+      'write'
+    )
+
+  let transactionCommitted =
+    false
+
+  let context = null
 
   try {
     const event =
-      await eventBySlug(tx, slug)
+      await eventBySlug(
+        tx,
+        slug
+      )
 
     if (!event) {
       await tx.rollback()
@@ -402,7 +459,8 @@ export async function reserveNumber({
       return {
         ok: false,
         status: 404,
-        error: 'Rifa não encontrada.',
+        error:
+          'Rifa não encontrada.',
       }
     }
 
@@ -437,10 +495,11 @@ export async function reserveNumber({
       }
     }
 
-
     if (
       selectedNumber >
-      Number(event.number_count)
+      Number(
+        event.number_count
+      )
     ) {
       await tx.rollback()
 
@@ -453,7 +512,8 @@ export async function reserveNumber({
     }
 
     if (
-      selectedMethod === 'pix' &&
+      selectedMethod ===
+        'pix' &&
       !event.allow_pix
     ) {
       await tx.rollback()
@@ -467,7 +527,8 @@ export async function reserveNumber({
     }
 
     if (
-      selectedMethod === 'diaper' &&
+      selectedMethod ===
+        'diaper' &&
       !event.allow_diaper
     ) {
       await tx.rollback()
@@ -481,7 +542,8 @@ export async function reserveNumber({
     }
 
     if (
-      selectedMethod === 'both' &&
+      selectedMethod ===
+        'both' &&
       (
         !event.allow_pix ||
         !event.allow_diaper
@@ -497,11 +559,159 @@ export async function reserveNumber({
       }
     }
 
-    const timestamp = nowIso()
-
     const requiresPayment =
-      selectedMethod === 'pix' ||
-      selectedMethod === 'both'
+      selectedMethod ===
+        'pix' ||
+      selectedMethod ===
+        'both'
+
+    const paymentSettings =
+      requiresPayment
+        ? await getEventPaymentSettings(
+            tx,
+            event
+          )
+        : null
+
+    const useMercadoPago =
+      requiresPayment &&
+      Boolean(
+        paymentSettings
+          ?.mercado_pago_enabled
+      ) &&
+      String(
+        paymentSettings
+          ?.pix_provider ||
+        ''
+      ) === 'MERCADO_PAGO'
+
+    if (
+      useMercadoPago &&
+      !validEmail(
+        normalizedEmail
+      )
+    ) {
+      await tx.rollback()
+
+      return {
+        ok: false,
+        status: 400,
+        error:
+          'Informe um e-mail válido para gerar o Pix do Mercado Pago.',
+      }
+    }
+
+    const timestamp =
+      nowIso()
+
+    const baseAmount =
+      requiresPayment
+        ? roundMoney(
+            event.number_price
+          )
+        : 0
+
+    const feeType =
+      String(
+        paymentSettings
+          ?.fee_type ||
+        'PERCENTAGE'
+      )
+
+    const feeValue =
+      Number(
+        paymentSettings
+          ?.fee_value ||
+        0
+      )
+
+    const feePayer =
+      String(
+        paymentSettings
+          ?.fee_payer ||
+        'ORGANIZER'
+      )
+
+    const feeAmount =
+      useMercadoPago
+        ? roundMoney(
+            feeType === 'FIXED'
+              ? feeValue
+              : baseAmount *
+                (
+                  feeValue /
+                  100
+                )
+          )
+        : 0
+
+    const chargedAmount =
+      useMercadoPago &&
+      feePayer ===
+        'PARTICIPANT'
+        ? roundMoney(
+            baseAmount +
+            feeAmount
+          )
+        : baseAmount
+
+    const providerEnvironment =
+      useMercadoPago
+        ? String(
+            paymentSettings
+              ?.mercado_pago_environment ||
+            'TEST'
+          ).toUpperCase()
+        : null
+
+    const credentialProfile =
+      useMercadoPago
+        ? String(
+            paymentSettings
+              ?.credential_profile ||
+            'principal'
+          )
+        : null
+
+    /*
+     * O sandbox Pix da API Orders usa
+     * R$ 50,00 no cenário oficial APRO.
+     * Em produção usamos o valor real.
+     */
+    const providerAmount =
+      useMercadoPago &&
+      providerEnvironment ===
+        'TEST'
+        ? 50
+        : chargedAmount
+
+    const eventTtl =
+      Number(
+        event
+          .reservation_ttl_minutes ||
+        1440
+      )
+
+    const pixTtl =
+      useMercadoPago
+        ? Number(
+            paymentSettings
+              ?.pix_expiration_minutes ||
+            eventTtl
+          )
+        : eventTtl
+
+    /*
+     * Nunca deixa a reserva durar mais
+     * que a cobrança Pix.
+     */
+    const reservationMinutes =
+      requiresPayment
+        ? Math.min(
+            eventTtl,
+            pixTtl
+          )
+        : 0
 
     const numberStatus =
       requiresPayment
@@ -517,10 +727,7 @@ export async function reserveNumber({
       requiresPayment
         ? addMinutes(
             new Date(),
-            Number(
-              event.reservation_ttl_minutes ||
-              1440
-            )
+            reservationMinutes
           )
         : null
 
@@ -547,7 +754,9 @@ export async function reserveNumber({
         ],
       })
 
-    if (reserve.rowsAffected !== 1) {
+    if (
+      reserve.rowsAffected !== 1
+    ) {
       await tx.rollback()
 
       return {
@@ -584,23 +793,32 @@ export async function reserveNumber({
             name,
             phone,
             normalized_phone,
+            email,
             created_at,
             updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?)
+          VALUES (
+            ?, ?, ?, ?, ?, ?, ?
+          )
         `,
         args: [
           event.id,
           normalizedName,
-          String(phone || '').trim(),
+          String(
+            phone || ''
+          ).trim(),
           normalizedPhone,
+          normalizedEmail || null,
           timestamp,
           timestamp,
         ],
       })
 
     const participantId =
-      Number(participant.lastInsertRowid)
+      Number(
+        participant
+          .lastInsertRowid
+      )
 
     const participation =
       await tx.execute({
@@ -628,18 +846,28 @@ export async function reserveNumber({
           numberRow.id,
           participantId,
           selectedMethod,
-          selectedMethod === 'pix'
+
+          selectedMethod ===
+            'pix'
             ? ''
-            : cleanText(diaperSize, 20),
-          selectedMethod === 'pix'
+            : cleanText(
+                diaperSize,
+                20
+              ),
+
+          selectedMethod ===
+            'pix'
             ? ''
             : cleanText(
                 diaperBrand,
                 80
               ),
-          selectedMethod === 'pix'
+
+          selectedMethod ===
+            'pix'
             ? 0
             : packs,
+
           participationStatus,
           timestamp,
           timestamp,
@@ -648,8 +876,21 @@ export async function reserveNumber({
 
     const participationId =
       Number(
-        participation.lastInsertRowid
+        participation
+          .lastInsertRowid
       )
+
+    const externalReference =
+      requiresPayment
+        ? `rifa-${Number(
+            event.id
+          )}-participacao-${participationId}`
+        : null
+
+    const idempotencyKey =
+      useMercadoPago
+        ? newMercadoPagoIdempotencyKey()
+        : null
 
     let paymentId = null
 
@@ -661,69 +902,709 @@ export async function reserveNumber({
               participation_id,
               amount,
               status,
+              external_reference,
+
+              provider,
+              provider_environment,
+              credential_profile,
+              provider_amount,
+
+              base_amount,
+              fee_amount,
+              charged_amount,
+
+              provider_expires_at,
+              idempotency_key,
+
               created_at,
               updated_at
             )
             VALUES (
-              ?,
-              ?,
-              'PENDING',
-              ?,
-              ?
+              ?, ?, 'PENDING', ?,
+              ?, ?, ?, ?,
+              ?, ?, ?,
+              ?, ?,
+              ?, ?
             )
           `,
           args: [
             participationId,
-            Number(event.number_price),
+            chargedAmount,
+            externalReference,
+
+            useMercadoPago
+              ? 'MERCADO_PAGO'
+              : 'MANUAL',
+
+            providerEnvironment,
+            credentialProfile,
+            providerAmount,
+
+            baseAmount,
+            feeAmount,
+            chargedAmount,
+
+            expiresAt,
+            idempotencyKey,
+
             timestamp,
             timestamp,
           ],
         })
 
       paymentId =
-        Number(payment.lastInsertRowid)
+        Number(
+          payment
+            .lastInsertRowid
+        )
     }
 
     await audit(tx, {
-      eventId: Number(event.id),
-      actor: 'public',
-      action: 'NUMBER_RESERVED',
-      objectType: 'participation',
-      objectId: participationId,
+      eventId:
+        Number(event.id),
+
+      actor:
+        'public',
+
+      action:
+        'NUMBER_RESERVED',
+
+      objectType:
+        'participation',
+
+      objectId:
+        participationId,
+
       details: {
-        number: selectedNumber,
-        method: selectedMethod,
+        number:
+          selectedNumber,
+
+        method:
+          selectedMethod,
+
         requiresPayment,
+
+        paymentProvider:
+          useMercadoPago
+            ? 'MERCADO_PAGO'
+            : requiresPayment
+              ? 'MANUAL'
+              : null,
+
+        baseAmount,
+        feeAmount,
+        chargedAmount,
       },
     })
 
     await tx.commit()
+
+    transactionCommitted =
+      true
+
+    context = {
+      eventId:
+        Number(event.id),
+
+      raffleNumberId:
+        Number(numberRow.id),
+
+      participationId,
+      paymentId,
+
+      number:
+        selectedNumber,
+
+      name:
+        normalizedName,
+
+      method:
+        selectedMethod,
+
+      participationStatus,
+      numberStatus,
+      expiresAt,
+
+      requiresPayment,
+      useMercadoPago,
+
+      baseAmount,
+      feeAmount,
+      chargedAmount,
+      providerAmount,
+      feePayer,
+
+      showFee:
+        Boolean(
+          paymentSettings
+            ?.show_fee
+        ),
+
+      providerEnvironment,
+      credentialProfile,
+
+      idempotencyKey,
+      externalReference,
+
+      email:
+        normalizedEmail,
+
+      expirationMinutes:
+        reservationMinutes,
+
+      manualFallback:
+        Boolean(
+          paymentSettings
+            ?.manual_fallback
+        ),
+    }
+  } catch (error) {
+    if (
+      !transactionCommitted
+    ) {
+      await tx
+        .rollback()
+        .catch(() => null)
+    }
+
+    throw error
+  }
+
+  if (
+    !context
+      ?.requiresPayment
+  ) {
+    return {
+      ok: true,
+      status: 201,
+
+      reservation: {
+        participationId:
+          context
+            .participationId,
+
+        paymentId: null,
+
+        number:
+          context.number,
+
+        name:
+          context.name,
+
+        method:
+          context.method,
+
+        status:
+          context
+            .participationStatus,
+
+        participationStatus:
+          context
+            .participationStatus,
+
+        numberStatus:
+          context.numberStatus,
+
+        expiresAt: null,
+
+        amount: 0,
+
+        paymentProvider: null,
+      },
+    }
+  }
+
+  if (
+    !context
+      .useMercadoPago
+  ) {
+    return {
+      ok: true,
+      status: 201,
+
+      reservation: {
+        participationId:
+          context
+            .participationId,
+
+        paymentId:
+          context.paymentId,
+
+        number:
+          context.number,
+
+        name:
+          context.name,
+
+        method:
+          context.method,
+
+        status:
+          context
+            .participationStatus,
+
+        participationStatus:
+          context
+            .participationStatus,
+
+        numberStatus:
+          context.numberStatus,
+
+        expiresAt:
+          context.expiresAt,
+
+        amount:
+          context.baseAmount,
+
+        paymentStatus:
+          'PENDING',
+
+        paymentProvider:
+          'MANUAL',
+
+        baseAmount:
+          context.baseAmount,
+
+        feeAmount: 0,
+
+        chargedAmount:
+          context.baseAmount,
+
+        providerAmount:
+          context.baseAmount,
+      },
+    }
+  }
+
+  try {
+    const order =
+      await createMercadoPagoPixOrder({
+        environment:
+          context
+            .providerEnvironment,
+
+        credentialProfile:
+          context
+            .credentialProfile,
+
+        amount:
+          context.providerAmount,
+
+        email:
+          context.email,
+
+        payerFirstName:
+          context.name,
+
+        externalReference:
+          context
+            .externalReference,
+
+        expirationMinutes:
+          context
+            .expirationMinutes,
+
+        idempotencyKey:
+          context
+            .idempotencyKey,
+      })
+
+    if (
+      !order.orderId ||
+      !order.pixCopyPaste
+    ) {
+      throw new Error(
+        'Mercado Pago não retornou os dados do Pix.'
+      )
+    }
+
+    const timestamp =
+      nowIso()
+
+    await db.execute({
+      sql: `
+        UPDATE payments
+        SET
+          provider_order_id = ?,
+          provider_payment_id = ?,
+          provider_status = ?,
+          provider_status_detail = ?,
+          pix_copy_paste = ?,
+          ticket_url = ?,
+          updated_at = ?
+        WHERE id = ?
+      `,
+      args: [
+        order.orderId,
+        order.paymentId || null,
+
+        order.orderStatus ||
+          order.paymentStatus ||
+          null,
+
+        order.orderStatusDetail ||
+          order.paymentStatusDetail ||
+          null,
+
+        order.pixCopyPaste ||
+          null,
+
+        order.ticketUrl ||
+          null,
+
+        timestamp,
+        context.paymentId,
+      ],
+    })
+
+    await audit(db, {
+      eventId:
+        context.eventId,
+
+      actor:
+        'system',
+
+      action:
+        'MERCADO_PAGO_ORDER_CREATED',
+
+      objectType:
+        'payment',
+
+      objectId:
+        context.paymentId,
+
+      details: {
+        orderId:
+          order.orderId,
+
+        paymentId:
+          order.paymentId,
+
+        status:
+          order.orderStatus,
+
+        statusDetail:
+          order
+            .orderStatusDetail,
+      },
+    })
 
     return {
       ok: true,
       status: 201,
 
       reservation: {
-        participationId,
-        paymentId,
-        number: selectedNumber,
-        name: normalizedName,
-        method: selectedMethod,
+        participationId:
+          context
+            .participationId,
+
+        paymentId:
+          context.paymentId,
+
+        number:
+          context.number,
+
+        name:
+          context.name,
+
+        method:
+          context.method,
+
         status:
-          participationStatus,
-        numberStatus,
-        expiresAt,
+          context
+            .participationStatus,
+
+        participationStatus:
+          context
+            .participationStatus,
+
+        numberStatus:
+          context.numberStatus,
+
+        expiresAt:
+          context.expiresAt,
+
         amount:
-          requiresPayment
-            ? Number(event.number_price)
-            : 0,
+          context.chargedAmount,
+
+        paymentStatus:
+          'PENDING',
+
+        paymentProvider:
+          'MERCADO_PAGO',
+
+        providerOrderId:
+          order.orderId,
+
+        providerPaymentId:
+          order.paymentId,
+
+        providerStatus:
+          order.orderStatus,
+
+        providerStatusDetail:
+          order
+            .orderStatusDetail,
+
+        pixCopyPaste:
+          order.pixCopyPaste,
+
+        ticketUrl:
+          order.ticketUrl,
+
+        baseAmount:
+          context.baseAmount,
+
+        feeAmount:
+          context.feeAmount,
+
+        chargedAmount:
+          context
+            .chargedAmount,
+
+        providerAmount:
+          context
+            .providerAmount,
+
+        feePayer:
+          context.feePayer,
+
+        showFee:
+          context.showFee,
       },
     }
   } catch (error) {
-    await tx.rollback().catch(() => null)
-    throw error
+    console.error(
+      'mercado-pago-order:',
+      error?.message
+    )
+
+    const timestamp =
+      nowIso()
+
+    if (
+      context
+        .manualFallback
+    ) {
+      await db.execute({
+        sql: `
+          UPDATE payments
+          SET
+            amount = ?,
+            provider = 'MANUAL',
+            provider_environment = NULL,
+            credential_profile = NULL,
+            provider_amount = 0,
+            provider_status = 'FALLBACK',
+            provider_status_detail = ?,
+            base_amount = ?,
+            fee_amount = 0,
+            charged_amount = ?,
+            pix_copy_paste = NULL,
+            ticket_url = NULL,
+            updated_at = ?
+          WHERE id = ?
+        `,
+        args: [
+          context.baseAmount,
+
+          cleanText(
+            error?.message,
+            200
+          ),
+
+          context.baseAmount,
+          context.baseAmount,
+
+          timestamp,
+          context.paymentId,
+        ],
+      })
+
+      await audit(db, {
+        eventId:
+          context.eventId,
+
+        actor:
+          'system',
+
+        action:
+          'MERCADO_PAGO_FALLBACK_MANUAL',
+
+        objectType:
+          'payment',
+
+        objectId:
+          context.paymentId,
+
+        details: {
+          number:
+            context.number,
+        },
+      })
+
+      return {
+        ok: true,
+        status: 201,
+
+        reservation: {
+          participationId:
+            context
+              .participationId,
+
+          paymentId:
+            context.paymentId,
+
+          number:
+            context.number,
+
+          name:
+            context.name,
+
+          method:
+            context.method,
+
+          status:
+            context
+              .participationStatus,
+
+          participationStatus:
+            context
+              .participationStatus,
+
+          numberStatus:
+            context.numberStatus,
+
+          expiresAt:
+            context.expiresAt,
+
+          amount:
+            context.baseAmount,
+
+          paymentStatus:
+            'PENDING',
+
+          paymentProvider:
+            'MANUAL',
+
+          paymentFallback:
+            true,
+
+          baseAmount:
+            context.baseAmount,
+
+          feeAmount: 0,
+
+          chargedAmount:
+            context.baseAmount,
+
+          providerAmount:
+            context.baseAmount,
+        },
+      }
+    }
+
+    const recovery =
+      await db.transaction(
+        'write'
+      )
+
+    try {
+      await recovery.execute({
+        sql: `
+          UPDATE payments
+          SET
+            status = 'CANCELLED',
+            provider_status = 'FAILED',
+            provider_status_detail = ?,
+            updated_at = ?
+          WHERE id = ?
+        `,
+        args: [
+          cleanText(
+            error?.message,
+            200
+          ),
+          timestamp,
+          context.paymentId,
+        ],
+      })
+
+      await recovery.execute({
+        sql: `
+          UPDATE participations
+          SET
+            status = 'CANCELLED',
+            updated_at = ?
+          WHERE id = ?
+        `,
+        args: [
+          timestamp,
+          context
+            .participationId,
+        ],
+      })
+
+      await recovery.execute({
+        sql: `
+          UPDATE raffle_numbers
+          SET
+            status = 'AVAILABLE',
+            reserved_at = NULL,
+            expires_at = NULL,
+            updated_at = ?
+          WHERE id = ?
+        `,
+        args: [
+          timestamp,
+          context
+            .raffleNumberId,
+        ],
+      })
+
+      await audit(
+        recovery,
+        {
+          eventId:
+            context.eventId,
+
+          actor:
+            'system',
+
+          action:
+            'MERCADO_PAGO_ORDER_FAILED',
+
+          objectType:
+            'payment',
+
+          objectId:
+            context.paymentId,
+
+          details: {
+            number:
+              context.number,
+          },
+        }
+      )
+
+      await recovery.commit()
+    } catch (recoveryError) {
+      await recovery
+        .rollback()
+        .catch(() => null)
+
+      throw recoveryError
+    }
+
+    return {
+      ok: false,
+      status: 502,
+      error:
+        'Não foi possível gerar o Pix pelo Mercado Pago. Tente novamente.',
+    }
   }
 }
+
 
 export async function getAdminDashboard() {
   await ensureDefaultEvent()
@@ -1337,38 +2218,68 @@ export async function getReservationStatus(
 
   const db = getDb()
 
-  let result =
-    await db.execute({
-      sql: `
-        SELECT
-          p.id AS participation_id,
-          p.event_id,
-          p.status AS participation_status,
+  async function readReservation() {
+    const result =
+      await db.execute({
+        sql: `
+          SELECT
+            p.id AS participation_id,
+            p.event_id,
+            p.raffle_number_id,
+            p.status AS participation_status,
 
-          rn.number,
-          rn.status AS number_status,
-          rn.expires_at,
+            rn.number,
+            rn.status AS number_status,
+            rn.expires_at,
 
-          pay.id AS payment_id,
-          pay.status AS payment_status,
-          pay.paid_at
+            pay.id AS payment_id,
+            pay.status AS payment_status,
+            pay.paid_at,
 
-        FROM participations p
+            pay.external_reference,
+            pay.provider,
+            pay.provider_environment,
+            pay.credential_profile,
+            pay.provider_amount,
+            pay.provider_order_id,
+            pay.provider_payment_id,
+            pay.provider_status,
+            pay.provider_status_detail,
 
-        JOIN raffle_numbers rn
-          ON rn.id = p.raffle_number_id
+            pay.base_amount,
+            pay.fee_amount,
+            pay.charged_amount,
 
-        LEFT JOIN payments pay
-          ON pay.participation_id = p.id
+            pay.pix_copy_paste,
+            pay.ticket_url
 
-        WHERE p.id = ?
+          FROM participations p
 
-        LIMIT 1
-      `,
-      args: [id],
-    })
+          JOIN raffle_numbers rn
+            ON rn.id =
+              p.raffle_number_id
 
-  let row = result.rows[0]
+          LEFT JOIN payments pay
+            ON pay.participation_id =
+              p.id
+
+          WHERE p.id = ?
+
+          LIMIT 1
+        `,
+        args: [
+          id,
+        ],
+      })
+
+    return (
+      result.rows[0] ||
+      null
+    )
+  }
+
+  let row =
+    await readReservation()
 
   if (!row) {
     return {
@@ -1379,13 +2290,391 @@ export async function getReservationStatus(
     }
   }
 
+  /*
+   * Sincroniza Mercado Pago antes
+   * de verificar vencimento local.
+   * Isso evita liberar um número
+   * que acabou de ser pago.
+   */
+  if (
+    row.payment_status ===
+      'PENDING' &&
+    row.provider ===
+      'MERCADO_PAGO' &&
+    row.provider_order_id
+  ) {
+    try {
+      const settingsResult =
+        await db.execute({
+          sql: `
+            SELECT
+              auto_confirm
+            FROM event_payment_settings
+            WHERE event_id = ?
+            LIMIT 1
+          `,
+          args: [
+            Number(
+              row.event_id
+            ),
+          ],
+        })
+
+      const autoConfirm =
+        Boolean(
+          settingsResult
+            .rows[0]
+            ?.auto_confirm
+        )
+
+      const order =
+        await getMercadoPagoOrder({
+          orderId:
+            String(
+              row
+                .provider_order_id
+            ),
+
+          environment:
+            String(
+              row
+                .provider_environment ||
+              'TEST'
+            ),
+
+          credentialProfile:
+            String(
+              row
+                .credential_profile ||
+              'principal'
+            ),
+        })
+
+      const providerPayment =
+        order
+          ?.transactions
+          ?.payments
+          ?.[0] ||
+        null
+
+      const orderStatus =
+        String(
+          order?.status || ''
+        )
+
+      const orderStatusDetail =
+        String(
+          order
+            ?.status_detail ||
+          ''
+        )
+
+      const paymentStatus =
+        String(
+          providerPayment
+            ?.status ||
+          ''
+        )
+
+      const paymentStatusDetail =
+        String(
+          providerPayment
+            ?.status_detail ||
+          ''
+        )
+
+      const accredited =
+        (
+          orderStatus ===
+            'processed' &&
+          orderStatusDetail ===
+            'accredited'
+        ) ||
+        (
+          paymentStatus ===
+            'processed' &&
+          paymentStatusDetail ===
+            'accredited'
+        )
+
+      const referenceMatches =
+        String(
+          order
+            ?.external_reference ||
+          ''
+        ) ===
+        String(
+          row
+            .external_reference ||
+          ''
+        )
+
+      const expectedAmount =
+        Number(
+          row
+            .provider_amount ||
+          row
+            .charged_amount ||
+          0
+        )
+
+      const receivedAmount =
+        Number(
+          order
+            ?.total_amount ||
+          providerPayment
+            ?.amount ||
+          0
+        )
+
+      const amountMatches =
+        Number.isFinite(
+          expectedAmount
+        ) &&
+        Number.isFinite(
+          receivedAmount
+        ) &&
+        Math.abs(
+          expectedAmount -
+          receivedAmount
+        ) < 0.01
+
+      const timestamp =
+        nowIso()
+
+      const syncTx =
+        await db.transaction(
+          'write'
+        )
+
+      try {
+        await syncTx.execute({
+          sql: `
+            UPDATE payments
+            SET
+              provider_payment_id =
+                COALESCE(
+                  ?,
+                  provider_payment_id
+                ),
+              provider_status = ?,
+              provider_status_detail = ?,
+              pix_copy_paste =
+                COALESCE(
+                  ?,
+                  pix_copy_paste
+                ),
+              ticket_url =
+                COALESCE(
+                  ?,
+                  ticket_url
+                ),
+              updated_at = ?
+            WHERE id = ?
+          `,
+          args: [
+            providerPayment?.id
+              ? String(
+                  providerPayment.id
+                )
+              : null,
+
+            orderStatus ||
+              paymentStatus ||
+              null,
+
+            orderStatusDetail ||
+              paymentStatusDetail ||
+              null,
+
+            providerPayment
+              ?.payment_method
+              ?.qr_code ||
+              null,
+
+            providerPayment
+              ?.payment_method
+              ?.ticket_url ||
+              null,
+
+            timestamp,
+
+            Number(
+              row.payment_id
+            ),
+          ],
+        })
+
+        if (
+          accredited &&
+          autoConfirm &&
+          referenceMatches &&
+          amountMatches
+        ) {
+          await syncTx.execute({
+            sql: `
+              UPDATE payments
+              SET
+                status = 'PAID',
+                paid_at = ?,
+                confirmed_by =
+                  'MERCADO_PAGO_POLL',
+                updated_at = ?
+              WHERE id = ?
+                AND status = 'PENDING'
+            `,
+            args: [
+              timestamp,
+              timestamp,
+              Number(
+                row.payment_id
+              ),
+            ],
+          })
+
+          await syncTx.execute({
+            sql: `
+              UPDATE participations
+              SET
+                status = 'CONFIRMED',
+                updated_at = ?
+              WHERE id = ?
+                AND status = 'PENDING'
+            `,
+            args: [
+              timestamp,
+              id,
+            ],
+          })
+
+          await syncTx.execute({
+            sql: `
+              UPDATE raffle_numbers
+              SET
+                status = 'CONFIRMED',
+                expires_at = NULL,
+                updated_at = ?
+              WHERE id = ?
+                AND status =
+                  'AWAITING_PAYMENT'
+            `,
+            args: [
+              timestamp,
+              Number(
+                row
+                  .raffle_number_id
+              ),
+            ],
+          })
+
+          await audit(
+            syncTx,
+            {
+              eventId:
+                Number(
+                  row.event_id
+                ),
+
+              actor:
+                'system',
+
+              action:
+                'MERCADO_PAGO_PAYMENT_CONFIRMED',
+
+              objectType:
+                'payment',
+
+              objectId:
+                Number(
+                  row.payment_id
+                ),
+
+              details: {
+                number:
+                  Number(
+                    row.number
+                  ),
+
+                orderId:
+                  String(
+                    row
+                      .provider_order_id
+                  ),
+
+                amount:
+                  receivedAmount,
+              },
+            }
+          )
+        } else if (
+          accredited &&
+          (
+            !referenceMatches ||
+            !amountMatches
+          )
+        ) {
+          await audit(
+            syncTx,
+            {
+              eventId:
+                Number(
+                  row.event_id
+                ),
+
+              actor:
+                'system',
+
+              action:
+                'MERCADO_PAGO_PAYMENT_MISMATCH',
+
+              objectType:
+                'payment',
+
+              objectId:
+                Number(
+                  row.payment_id
+                ),
+
+              details: {
+                referenceMatches,
+                amountMatches,
+                expectedAmount,
+                receivedAmount,
+              },
+            }
+          )
+        }
+
+        await syncTx.commit()
+      } catch (syncError) {
+        await syncTx
+          .rollback()
+          .catch(() => null)
+
+        throw syncError
+      }
+    } catch (error) {
+      console.warn(
+        'mercado-pago-status:',
+        error?.message
+      )
+    }
+
+    row =
+      await readReservation()
+  }
+
   const tx =
-    await db.transaction('write')
+    await db.transaction(
+      'write'
+    )
 
   try {
     await expireReservations(
       tx,
-      Number(row.event_id)
+      Number(
+        row.event_id
+      )
     )
 
     await tx.commit()
@@ -1397,37 +2686,8 @@ export async function getReservationStatus(
     throw error
   }
 
-  result =
-    await db.execute({
-      sql: `
-        SELECT
-          p.id AS participation_id,
-          p.status AS participation_status,
-
-          rn.number,
-          rn.status AS number_status,
-          rn.expires_at,
-
-          pay.id AS payment_id,
-          pay.status AS payment_status,
-          pay.paid_at
-
-        FROM participations p
-
-        JOIN raffle_numbers rn
-          ON rn.id = p.raffle_number_id
-
-        LEFT JOIN payments pay
-          ON pay.participation_id = p.id
-
-        WHERE p.id = ?
-
-        LIMIT 1
-      `,
-      args: [id],
-    })
-
-  row = result.rows[0]
+  row =
+    await readReservation()
 
   return {
     ok: true,
@@ -1436,7 +2696,8 @@ export async function getReservationStatus(
     reservation: {
       participationId:
         Number(
-          row.participation_id
+          row
+            .participation_id
         ),
 
       number:
@@ -1449,7 +2710,8 @@ export async function getReservationStatus(
 
       participationStatus:
         String(
-          row.participation_status
+          row
+            .participation_status
         ),
 
       expiresAt:
@@ -1469,7 +2731,8 @@ export async function getReservationStatus(
       paymentStatus:
         row.payment_status
           ? String(
-              row.payment_status
+              row
+                .payment_status
             )
           : null,
 
@@ -1479,9 +2742,88 @@ export async function getReservationStatus(
               row.paid_at
             )
           : null,
+
+      paymentProvider:
+        row.provider
+          ? String(
+              row.provider
+            )
+          : null,
+
+      providerOrderId:
+        row.provider_order_id
+          ? String(
+              row
+                .provider_order_id
+            )
+          : null,
+
+      providerPaymentId:
+        row.provider_payment_id
+          ? String(
+              row
+                .provider_payment_id
+            )
+          : null,
+
+      providerStatus:
+        row.provider_status
+          ? String(
+              row
+                .provider_status
+            )
+          : null,
+
+      providerStatusDetail:
+        row.provider_status_detail
+          ? String(
+              row
+                .provider_status_detail
+            )
+          : null,
+
+      baseAmount:
+        Number(
+          row.base_amount ||
+          0
+        ),
+
+      feeAmount:
+        Number(
+          row.fee_amount ||
+          0
+        ),
+
+      chargedAmount:
+        Number(
+          row.charged_amount ||
+          0
+        ),
+
+      providerAmount:
+        Number(
+          row.provider_amount ||
+          0
+        ),
+
+      pixCopyPaste:
+        row.pix_copy_paste
+          ? String(
+              row
+                .pix_copy_paste
+            )
+          : null,
+
+      ticketUrl:
+        row.ticket_url
+          ? String(
+              row.ticket_url
+            )
+          : null,
     },
   }
 }
+
 
 export async function getLatestPublicDraw(
   slug = 'cha-da-malu'
