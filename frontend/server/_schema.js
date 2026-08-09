@@ -101,6 +101,35 @@ const statements = [
   `,
 
   `
+  CREATE TABLE IF NOT EXISTS event_payment_settings (
+    event_id INTEGER PRIMARY KEY,
+
+    pix_provider TEXT NOT NULL DEFAULT 'MANUAL',
+
+    mercado_pago_enabled INTEGER NOT NULL DEFAULT 0,
+    mercado_pago_environment TEXT NOT NULL DEFAULT 'TEST',
+    credential_profile TEXT NOT NULL DEFAULT 'principal',
+
+    fee_type TEXT NOT NULL DEFAULT 'PERCENTAGE',
+    fee_value REAL NOT NULL DEFAULT 0.99,
+    fee_payer TEXT NOT NULL DEFAULT 'ORGANIZER',
+    show_fee INTEGER NOT NULL DEFAULT 1,
+
+    auto_confirm INTEGER NOT NULL DEFAULT 1,
+    manual_fallback INTEGER NOT NULL DEFAULT 1,
+
+    pix_expiration_minutes INTEGER NOT NULL DEFAULT 1440,
+
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+
+    FOREIGN KEY(event_id)
+      REFERENCES events(id)
+      ON DELETE CASCADE
+  )
+  `,
+
+  `
   CREATE TABLE IF NOT EXISTS payments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     participation_id INTEGER NOT NULL UNIQUE,
@@ -271,6 +300,91 @@ export async function ensureSchema() {
           ],
         })
       }
+
+
+      // PAYMENT_SETTINGS_V3
+      const paymentSettingsMigration =
+        await db.execute(`
+          SELECT version
+          FROM schema_migrations
+          WHERE version = 3
+          LIMIT 1
+        `)
+
+      if (!paymentSettingsMigration.rows.length) {
+        const timestamp = nowIso()
+
+        const events =
+          await db.execute(`
+            SELECT
+              id,
+              reservation_ttl_minutes
+            FROM events
+          `)
+
+        for (const event of events.rows) {
+          await db.execute({
+            sql: `
+              INSERT OR IGNORE INTO event_payment_settings (
+                event_id,
+                pix_provider,
+                mercado_pago_enabled,
+                mercado_pago_environment,
+                credential_profile,
+                fee_type,
+                fee_value,
+                fee_payer,
+                show_fee,
+                auto_confirm,
+                manual_fallback,
+                pix_expiration_minutes,
+                created_at,
+                updated_at
+              )
+              VALUES (
+                ?,
+                'MANUAL',
+                0,
+                'TEST',
+                'principal',
+                'PERCENTAGE',
+                0.99,
+                'ORGANIZER',
+                1,
+                1,
+                1,
+                ?,
+                ?,
+                ?
+              )
+            `,
+            args: [
+              Number(event.id),
+              Number(
+                event.reservation_ttl_minutes ||
+                1440
+              ),
+              timestamp,
+              timestamp,
+            ],
+          })
+        }
+
+        await db.execute({
+          sql: `
+            INSERT INTO schema_migrations (
+              version,
+              applied_at
+            )
+            VALUES (?, ?)
+          `,
+          args: [
+            3,
+            timestamp,
+          ],
+        })
+      }
+
     })().catch((error) => {
       schemaReady = null
       throw error

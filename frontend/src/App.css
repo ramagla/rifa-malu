@@ -2689,3 +2689,69 @@ PUBLICO - AJUSTE DESKTOP + GANHADOR
     grid-template-columns:1fr;
   }
 }
+
+/* Configuração de pagamentos por evento */
+
+.settings-help{
+  margin:-8px 0 18px;
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.55;
+}
+
+.settings-grid select{
+  width:100%;
+  min-height:44px;
+  margin-top:7px;
+  padding:0 12px;
+  border:1px solid #ded7d4;
+  border-radius:4px;
+  background:#fff;
+  color:var(--ink);
+  font:inherit;
+  font-size:14px;
+}
+
+.payment-master-option{
+  margin-top:0;
+  padding:14px 16px;
+  border-radius:5px;
+  background:#faf4f2;
+}
+
+.payment-settings-fields{
+  margin-top:22px;
+}
+
+.payment-extra-options{
+  flex-wrap:wrap;
+  padding-top:4px;
+}
+
+.payment-environment-note,
+.payment-disabled-note{
+  margin-top:18px;
+  padding:12px 14px;
+  border-radius:5px;
+  font-size:12px;
+  line-height:1.5;
+}
+
+.payment-environment-note{
+  border:1px solid #ead9a7;
+  background:#fff9e7;
+  color:#765d17;
+}
+
+.payment-disabled-note{
+  border:1px solid #d9e6de;
+  background:#f1f7f3;
+  color:#557061;
+}
+
+@media(max-width:700px){
+  .payment-extra-options{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+}

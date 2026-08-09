@@ -2257,6 +2257,7 @@ function AdminPortal({
           'Configurações' && (
           <AdminSettings
             publicData={publicData}
+            dashboard={dashboard}
             onSaved={load}
           />
         )}
@@ -2852,10 +2853,14 @@ function OrganizerIdentity() {
 
 function AdminSettings({
   publicData,
+  dashboard,
   onSaved,
 }) {
   const event =
     publicData?.event
+
+  const payment =
+    dashboard?.payment || null
 
   const [
     form,
@@ -2942,8 +2947,49 @@ function AdminSettings({
           event.reservationTtlMinutes ||
           1440
         ),
+
+      mercadoPagoEnabled:
+        Boolean(
+          payment?.mercadoPagoEnabled
+        ),
+
+      mercadoPagoEnvironment:
+        payment?.environment ||
+        'TEST',
+
+      credentialProfile:
+        payment?.credentialProfile ||
+        'principal',
+
+      feeType:
+        payment?.feeType ||
+        'PERCENTAGE',
+
+      feeValue:
+        Number(
+          payment?.feeValue ?? 0.99
+        ),
+
+      feePayer:
+        payment?.feePayer ||
+        'ORGANIZER',
+
+      showFee:
+        payment?.showFee !== false,
+
+      autoConfirm:
+        payment?.autoConfirm !== false,
+
+      manualFallback:
+        payment?.manualFallback !== false,
+
+      pixExpirationMinutes:
+        Number(
+          payment?.pixExpirationMinutes ||
+          1440
+        ),
     })
-  }, [event])
+  }, [event, payment])
 
 
   if (!form) {
@@ -3305,6 +3351,237 @@ function AdminSettings({
               />
             </label>
           </div>
+        </section>
+
+
+        <section className="settings-section payment-settings-section">
+          <h3>
+            Pagamentos automáticos
+          </h3>
+
+          <p className="settings-help">
+            Configure o Mercado Pago para este evento.
+            As credenciais privadas permanecem protegidas
+            nas variáveis da Vercel.
+          </p>
+
+          <div className="settings-options payment-master-option">
+            <label>
+              <input
+                type="checkbox"
+                checked={
+                  form.mercadoPagoEnabled
+                }
+                onChange={e =>
+                  update(
+                    'mercadoPagoEnabled',
+                    e.target.checked
+                  )
+                }
+              />
+
+              Usar Mercado Pago para o Pix
+            </label>
+          </div>
+
+          {form.mercadoPagoEnabled && (
+            <div className="payment-settings-fields">
+              <div className="settings-grid">
+                <label>
+                  Ambiente
+
+                  <select
+                    value={
+                      form
+                        .mercadoPagoEnvironment
+                    }
+                    onChange={e =>
+                      update(
+                        'mercadoPagoEnvironment',
+                        e.target.value
+                      )
+                    }
+                  >
+                    <option value="TEST">
+                      Teste
+                    </option>
+
+                    <option value="PRODUCTION">
+                      Produção
+                    </option>
+                  </select>
+                </label>
+
+                <label>
+                  Perfil de credencial
+
+                  <input
+                    value={
+                      form.credentialProfile
+                    }
+                    onChange={e =>
+                      update(
+                        'credentialProfile',
+                        e.target.value
+                          .toLowerCase()
+                      )
+                    }
+                    placeholder="principal"
+                  />
+                </label>
+
+                <label>
+                  Tipo da taxa
+
+                  <select
+                    value={form.feeType}
+                    onChange={e =>
+                      update(
+                        'feeType',
+                        e.target.value
+                      )
+                    }
+                  >
+                    <option value="PERCENTAGE">
+                      Percentual (%)
+                    </option>
+
+                    <option value="FIXED">
+                      Valor fixo (R$)
+                    </option>
+                  </select>
+                </label>
+
+                <label>
+                  Valor da taxa
+
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.feeValue}
+                    onChange={e =>
+                      update(
+                        'feeValue',
+                        Number(
+                          e.target.value
+                        )
+                      )
+                    }
+                  />
+                </label>
+
+                <label>
+                  Quem absorve a taxa
+
+                  <select
+                    value={form.feePayer}
+                    onChange={e =>
+                      update(
+                        'feePayer',
+                        e.target.value
+                      )
+                    }
+                  >
+                    <option value="ORGANIZER">
+                      Organizador
+                    </option>
+
+                    <option value="PARTICIPANT">
+                      Participante
+                    </option>
+                  </select>
+                </label>
+
+                <label>
+                  Validade do Pix (minutos)
+
+                  <input
+                    type="number"
+                    min="30"
+                    max="43200"
+                    value={
+                      form
+                        .pixExpirationMinutes
+                    }
+                    onChange={e =>
+                      update(
+                        'pixExpirationMinutes',
+                        Number(
+                          e.target.value
+                        )
+                      )
+                    }
+                  />
+                </label>
+              </div>
+
+              <div className="settings-options payment-extra-options">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={form.showFee}
+                    onChange={e =>
+                      update(
+                        'showFee',
+                        e.target.checked
+                      )
+                    }
+                  />
+
+                  Exibir a taxa ao participante
+                </label>
+
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={
+                      form.autoConfirm
+                    }
+                    onChange={e =>
+                      update(
+                        'autoConfirm',
+                        e.target.checked
+                      )
+                    }
+                  />
+
+                  Confirmar pagamento automaticamente
+                </label>
+
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={
+                      form.manualFallback
+                    }
+                    onChange={e =>
+                      update(
+                        'manualFallback',
+                        e.target.checked
+                      )
+                    }
+                  />
+
+                  Permitir Pix manual como alternativa
+                </label>
+              </div>
+
+              <div className="payment-environment-note">
+                {form.mercadoPagoEnvironment ===
+                'TEST'
+                  ? 'Ambiente de teste: nenhuma cobrança real será criada.'
+                  : 'Ambiente de produção: utilizar somente após concluir a homologação.'}
+              </div>
+            </div>
+          )}
+
+          {!form.mercadoPagoEnabled && (
+            <div className="payment-disabled-note">
+              Mercado Pago desativado. O evento
+              continua utilizando o Pix manual atual.
+            </div>
+          )}
         </section>
 
 

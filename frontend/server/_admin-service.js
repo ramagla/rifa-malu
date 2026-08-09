@@ -9,6 +9,11 @@ import {
   ensureSchema,
 } from './_schema.js'
 
+import {
+  normalizePaymentSettings,
+  saveEventPaymentSettings,
+} from './_payment-settings.js'
+
 const EVENT_SLUG = 'cha-da-malu'
 
 async function currentEvent(db) {
@@ -313,6 +318,23 @@ export async function updateEventSettings(
         Boolean(event.allow_diaper)
       )
 
+    const paymentSettingsResult =
+      normalizePaymentSettings(
+        settings,
+        {
+          allowPix,
+        }
+      )
+
+    if (!paymentSettingsResult.ok) {
+      await tx.rollback()
+
+      return paymentSettingsResult
+    }
+
+    const paymentSettings =
+      paymentSettingsResult.value
+
     if (!name) {
       await tx.rollback()
 
@@ -517,6 +539,12 @@ export async function updateEventSettings(
       ],
     })
 
+    await saveEventPaymentSettings(
+      tx,
+      Number(event.id),
+      paymentSettings
+    )
+
     await audit(tx, {
       eventId: Number(event.id),
       action: 'EVENT_SETTINGS_UPDATED',
@@ -525,6 +553,19 @@ export async function updateEventSettings(
       details: {
         oldNumberCount: oldCount,
         newNumberCount: numberCount,
+        pixProvider:
+          paymentSettings.pixProvider,
+        mercadoPagoEnabled:
+          paymentSettings
+            .mercadoPagoEnabled,
+        mercadoPagoEnvironment:
+          paymentSettings.environment,
+        feeType:
+          paymentSettings.feeType,
+        feeValue:
+          paymentSettings.feeValue,
+        feePayer:
+          paymentSettings.feePayer,
       },
     })
 

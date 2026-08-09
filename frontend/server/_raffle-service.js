@@ -10,6 +10,11 @@ import {
   ensureSchema,
 } from './_schema.js'
 
+import {
+  getEventPaymentSettings,
+  serializePaymentSettings,
+} from './_payment-settings.js'
+
 const EVENT_SLUG = 'cha-da-malu'
 
 function addMinutes(date, minutes) {
@@ -215,6 +220,12 @@ export async function getPublicEvent(
     await tx.rollback().catch(() => null)
     throw error
   }
+
+  const paymentSettings =
+    await getEventPaymentSettings(
+      db,
+      event
+    )
 
   const numbers =
     await db.execute({
@@ -734,6 +745,12 @@ export async function getAdminDashboard() {
     throw error
   }
 
+  const adminPaymentSettings =
+    await getEventPaymentSettings(
+      db,
+      event
+    )
+
   const statusCounts =
     await db.execute({
       sql: `
@@ -942,6 +959,14 @@ export async function getAdminDashboard() {
       drawDate:
         String(event.draw_date || ''),
     },
+
+    payment:
+      serializePaymentSettings(
+        adminPaymentSettings,
+        {
+          includeAdmin: true,
+        }
+      ),
 
     counts,
 
