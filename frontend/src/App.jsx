@@ -19,6 +19,34 @@ import AdminDraw from './components/admin/AdminDraw'
 import './App.css'
 
 
+function formatWhatsApp(value) {
+  const digits = String(value || '')
+    .replace(/\D/g, '')
+    .slice(0, 11)
+
+  if (!digits) {
+    return ''
+  }
+
+  if (digits.length <= 2) {
+    return `(${digits}`
+  }
+
+  const ddd = digits.slice(0, 2)
+  const number = digits.slice(2)
+
+  if (number.length <= 4) {
+    return `(${ddd}) ${number}`
+  }
+
+  if (number.length <= 8) {
+    return `(${ddd}) ${number.slice(0, 4)}-${number.slice(4)}`
+  }
+
+  return `(${ddd}) ${number.slice(0, 5)}-${number.slice(5)}`
+}
+
+
 const pad = value =>
   String(value).padStart(2, '0')
 
@@ -987,6 +1015,7 @@ function PublicRaffle() {
                 required
                 inputMode="tel"
                 autoComplete="tel"
+                maxLength={15}
                 value={form.phone}
                 onChange={event =>
                   setForm({
@@ -3221,10 +3250,12 @@ function AdminSettings({
                 onChange={e =>
                   update(
                     'whatsapp',
-                    e.target.value
+                    formatWhatsApp(e.target.value)
                   )
                 }
                 placeholder="(11) 99999-9999"
+                inputMode="tel"
+                maxLength={15}
               />
             </label>
 
